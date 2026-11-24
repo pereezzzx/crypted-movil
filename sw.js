@@ -1,5 +1,5 @@
 // Service worker: permite abrir la app sin conexión. Nunca toca las peticiones a Google.
-const VERSION = 'crypted-movil-v3';
+const VERSION = 'crypted-movil-v4';
 const SHELL = ['./', './index.html', './app.js', './crypto.js', './store.js', './lan.js', './jsQR.js', './styles.css', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {

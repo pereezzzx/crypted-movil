@@ -253,51 +253,131 @@ async function addFromGallery(files) {
 }
 
 // ---------- cámara ----------
-let stream = null;
+// La imagen de la cámara se pinta en un lienzo y lo que se graba es ese lienzo + el micrófono.
+// Así se puede cambiar entre cámara trasera y frontal SIN cortar la grabación: solo cambia lo que se pinta.
+let camStream = null;   // solo vídeo: se sustituye al cambiar de cámara
+let micStream = null;   // solo audio: se mantiene durante toda la grabación
 let recorder = null;
 let recJob = null;
+let recStopped = null;  // promesa que se cumple cuando el clip se ha cerrado y cifrado
+let canvasRec = null;   // { timer, tracks } mientras se graba por lienzo
 let facing = 'environment';
+let switching = false;
 let timerId = null;
 let wakeLock = null;
 
-async function openCamera() {
-  closeCamera();
-  stream = await navigator.mediaDevices.getUserMedia({
-    audio: true,
-    video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
-  });
+const isRecording = () => !!(recorder && recorder.state === 'recording');
+const videoConstraints = () => ({ facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } });
+
+async function startVideo() {
+  // el iPhone solo permite una cámara encendida a la vez: primero se apaga la anterior
+  if (camStream) camStream.getTracks().forEach((t) => t.stop());
+  camStream = null;
+  camStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints() });
   const v = $('#preview');
-  v.srcObject = stream;
-  v.classList.toggle('mirror', facing === 'user');
+  v.srcObject = camStream;
+  v.classList.toggle('mirror', facing === 'user'); // solo la vista previa va en espejo; el vídeo grabado, no
   await v.play().catch(() => {});
   $('#camera').classList.add('open');
 }
 
+async function openCamera() {
+  await startVideo();
+}
+
 function closeCamera() {
-  if (recorder && recorder.state !== 'inactive') return;
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  stream = null;
+  if (isRecording()) return;
+  if (camStream) camStream.getTracks().forEach((t) => t.stop());
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  camStream = null;
+  micStream = null;
+  $('#preview').srcObject = null;
   $('#camera').classList.remove('open');
 }
 
-async function toggleRecord() {
-  if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
-  if (!stream) await openCamera();
+/** Cambiar de cámara: si se está grabando, la grabación continúa en el mismo clip. */
+async function switchCamera() {
+  if (switching) return;
+  switching = true;
+  const prev = facing;
+  facing = facing === 'user' ? 'environment' : 'user';
+  try {
+    if (isRecording() && !canvasRec) {
+      // navegador sin grabación por lienzo: se cierra el clip y empieza otro al instante (la película del día los une)
+      await stopRecording();
+      await startVideo();
+      await startRecording();
+    } else {
+      await startVideo(); // con lienzo, el dibujo toma la nueva cámara sola; mientras arranca, se mantiene el último fotograma
+    }
+  } catch (e) {
+    facing = prev;
+    toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara' : `No se pudo cambiar de cámara: ${e.message}`, true);
+    try { await startVideo(); } catch { /* */ }
+  } finally {
+    switching = false;
+  }
+}
+
+async function startRecording() {
+  if (!camStream) await startVideo();
+  if (!micStream) micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
   const mimeType = types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
   if (!mimeType) { toast('Este navegador no puede grabar vídeo', true); return; }
+
+  const v = $('#preview');
+  let videoTracks;
+  if (typeof HTMLCanvasElement.prototype.captureStream === 'function') {
+    // tamaño fijo durante todo el clip (el de la cámara al empezar, como mucho 1920 px de lado)
+    let w = v.videoWidth || 1080;
+    let h = v.videoHeight || 1920;
+    const k = Math.min(1, 1920 / Math.max(w, h));
+    w = Math.round((w * k) / 2) * 2;
+    h = Math.round((h * k) / 2) * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+    canvasRec = { timer: 0, tracks: [] };
+    const draw = () => {
+      if (!canvasRec) return;
+      if (v.readyState >= 2 && v.videoWidth) {
+        // encuadre "cubrir": la otra cámara puede tener otra proporción
+        const s = Math.max(w / v.videoWidth, h / v.videoHeight);
+        const dw = v.videoWidth * s;
+        const dh = v.videoHeight * s;
+        ctx.drawImage(v, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      } // si la cámara está cambiando, se queda el último fotograma (sin negro)
+    };
+    // temporizador propio a 30 fps (no depende del ciclo de pintado de la pantalla)
+    draw();
+    canvasRec.timer = setInterval(draw, 1000 / 30);
+    videoTracks = canvas.captureStream(30).getVideoTracks();
+    canvasRec.tracks = videoTracks;
+  } else {
+    videoTracks = camStream.getVideoTracks();
+  }
+  const recStream = new MediaStream([...videoTracks, ...micStream.getAudioTracks()]);
+
   const start = new Date();
   recJob = await startClip({ name: clipName(start, mimeType.includes('mp4') ? 'mp4' : 'webm'), recordedAt: start.toISOString(), source: 'camera', mime: mimeType });
-  recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000, audioBitsPerSecond: 128_000 });
+  recorder = new MediaRecorder(recStream, { mimeType, videoBitsPerSecond: 6_000_000, audioBitsPerSecond: 128_000 });
   const job = recJob;
+  let resolveStopped;
+  recStopped = new Promise((r) => { resolveStopped = r; });
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) job.push(e.data); };
   recorder.onstop = async () => {
     clearInterval(timerId);
+    if (canvasRec) { clearInterval(canvasRec.timer); canvasRec.tracks.forEach((t) => t.stop()); canvasRec = null; }
     $('#rec-btn').classList.remove('on');
     $('#rec-time').textContent = '';
     try { await wakeLock?.release(); } catch { /* */ }
     recJob = null;
     try { await job.finish(); toast('Clip cifrado y en cola'); } catch (err) { toast(err.message, true); }
+    resolveStopped();
   };
   recorder.start(1000); // trozos de 1 s: se cifran y se guardan mientras grabas
   try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
@@ -307,6 +387,18 @@ async function toggleRecord() {
     const s = Math.floor((Date.now() - start) / 1000);
     $('#rec-time').textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
   }, 250);
+}
+
+async function stopRecording() {
+  if (!isRecording()) return;
+  const done = recStopped;
+  recorder.stop();
+  await done;
+}
+
+async function toggleRecord() {
+  if (isRecording()) { await stopRecording(); if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; } return; }
+  await startRecording();
 }
 
 // ---------- envío al PC por la Wi-Fi de casa (reanudable) ----------
@@ -381,7 +473,7 @@ async function init() {
   $('#rec-btn').onclick = () => toggleRecord().catch((e) => toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara y al micrófono' : e.message, true));
   $('#open-cam').onclick = () => openCamera().catch((e) => toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara y al micrófono' : e.message, true));
   $('#close-cam').onclick = closeCamera;
-  $('#flip').onclick = async () => { if (recorder && recorder.state === 'recording') return; facing = facing === 'user' ? 'environment' : 'user'; await openCamera().catch(() => {}); };
+  $('#flip').onclick = () => switchCamera();
   $('#gallery').onchange = async (e) => {
     const files = [...e.target.files];
     e.target.value = '';
