@@ -21,13 +21,22 @@
   <main id="view-unpaired" class="center" hidden>
     <div class="mark"><svg viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.1 8.4-7.5 9.5-4.4-1.1-7.5-4.9-7.5-9.5V6L12 3z"/><path d="M9 12l2 2 4-4"/></svg></div>
     <h1>Crypted · Diario</h1>
-    <p>Este iPhone todavía no está vinculado a tu bóveda.</p>
+    <p>Esta app todavía no está vinculada a tu bóveda.</p>
     <ol class="steps">
       <li>En el PC abre <strong>Crypted Vault → Ajustes → iPhone</strong>.</li>
       <li>Pulsa <strong>Mostrar código QR</strong>.</li>
-      <li>Escanéalo con la <strong>cámara del iPhone</strong>.</li>
+      <li>Pulsa el botón de aquí abajo y apunta al QR.</li>
     </ol>
+    <button class="btn primary scan-btn" type="button" data-scan>Escanear el QR del PC</button>
   </main>
+
+  <!-- lector de QR (funciona también en la app añadida a la pantalla de inicio) -->
+  <div id="scanner" class="scanner-overlay" hidden>
+    <video id="scan-video" playsinline muted autoplay></video>
+    <div class="scan-frame"></div>
+    <p class="scan-hint">Apunta al código QR que muestra Crypted Vault en el PC</p>
+    <button id="scan-close" class="btn ghost" type="button">Cancelar</button>
+  </div>
 
   <!-- principal -->
   <main id="view-main" hidden>
@@ -78,10 +87,12 @@
     <p id="queue-empty" class="muted">Todavía no has enviado ningún clip.</p>
     <ul id="queue" class="queue"></ul>
 
+    <button class="link" type="button" data-scan>Volver a vincular (escanear QR del PC)</button>
     <button id="unpair" class="link" type="button">Desvincular este iPhone</button>
   </main>
 
   <div id="toasts"></div>
+  <script src="jsQR.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

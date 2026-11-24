@@ -16,8 +16,10 @@ let pairing = null;
 try { pairing = JSON.parse(localStorage.getItem(PAIR_KEY) || 'null'); } catch { pairing = null; }
 
 // ---------- arranque: vinculación ----------
-function readHash() {
-  const h = new URLSearchParams(location.hash.slice(1));
+/** Lee la vinculación del enlace (#pair=…) o de un QR escaneado dentro de la app. */
+function readHash(fragment) {
+  const fromUrl = fragment === undefined;
+  const h = new URLSearchParams(fromUrl ? location.hash.slice(1) : fragment);
   if (!h.get('pair')) return;
   try {
     const p = JSON.parse(new TextDecoder().decode(b64urlToBytes(h.get('pair'))));
@@ -36,7 +38,65 @@ function readHash() {
   } catch (e) {
     if (e.message !== 'cancel') toast('El enlace de vinculación no es válido', true);
   }
-  history.replaceState(null, '', location.pathname); // limpiar el enlace (no dejar el token a la vista)
+  if (fromUrl) history.replaceState(null, '', location.pathname); // limpiar el enlace (no dejar el token a la vista)
+}
+
+// ---------- lector de QR integrado ----------
+// En el iPhone, la app añadida a la pantalla de inicio no comparte datos con Safari:
+// por eso puede vincularse escaneando el QR del PC desde dentro de la propia app.
+let scanStream = null;
+let scanning = false;
+
+async function startScan() {
+  if (typeof jsQR !== 'function') { toast('No se pudo cargar el lector de QR', true); return; }
+  closeCamera();
+  $('#scanner').hidden = false;
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+  } catch (e) {
+    stopScan();
+    toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara para escanear el QR' : e.message, true);
+    return;
+  }
+  const v = $('#scan-video');
+  v.srcObject = scanStream;
+  await v.play().catch(() => {});
+  scanning = true;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const tick = () => {
+    if (!scanning) return;
+    if (v.readyState >= 2 && v.videoWidth) {
+      const s = Math.min(1, 960 / Math.max(v.videoWidth, v.videoHeight));
+      canvas.width = Math.round(v.videoWidth * s);
+      canvas.height = Math.round(v.videoHeight * s);
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        const i = code.data.indexOf('#pair=');
+        if (i >= 0) {
+          stopScan();
+          if (navigator.vibrate) navigator.vibrate(60);
+          readHash(code.data.slice(i + 1));
+          render();
+          pump();
+          return;
+        }
+        if (!tick.warned) { tick.warned = true; toast('Ese QR no es el de Crypted Vault', true); }
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopScan() {
+  scanning = false;
+  if (scanStream) scanStream.getTracks().forEach((t) => t.stop());
+  scanStream = null;
+  $('#scan-video').srcObject = null;
+  $('#scanner').hidden = true;
 }
 
 let pc = null;          // { base, name } del PC encontrado en esta sesión
@@ -314,6 +374,8 @@ async function init() {
   try { await navigator.storage?.persist?.(); } catch { /* */ }
   await recoverInterrupted();
 
+  document.querySelectorAll('[data-scan]').forEach((b) => { b.onclick = () => startScan(); });
+  $('#scan-close').onclick = stopScan;
   $('#check-pc').onclick = async () => { pc = null; const found = await locatePC(); if (!found) toast('Todavía no encuentro tu PC: revisa los pasos', true); else pump(); };
   $('#pc-chip').onclick = () => { pc = null; pump(); };
   $('#rec-btn').onclick = () => toggleRecord().catch((e) => toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara y al micrófono' : e.message, true));
