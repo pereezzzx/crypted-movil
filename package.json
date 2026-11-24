@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "App web del iPhone (PWA). Se publica como sitio estático; este archivo solo marca los .js como módulos ES."
+}

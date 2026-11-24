@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https://www.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0A0B0F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Crypted">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>Crypted · Diario</title>
+</head>
+<body>
+  <!-- sin vincular -->
+  <main id="view-unpaired" class="center" hidden>
+    <div class="mark"><svg viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.1 8.4-7.5 9.5-4.4-1.1-7.5-4.9-7.5-9.5V6L12 3z"/><path d="M9 12l2 2 4-4"/></svg></div>
+    <h1>Crypted · Diario</h1>
+    <p>Este iPhone todavía no está vinculado a tu bóveda.</p>
+    <ol class="steps">
+      <li>En el PC abre <strong>Crypted Vault → Ajustes → Móvil y nube</strong>.</li>
+      <li>Pulsa <strong>Mostrar código QR</strong>.</li>
+      <li>Escanéalo con la <strong>cámara del iPhone</strong>.</li>
+    </ol>
+  </main>
+
+  <!-- principal -->
+  <main id="view-main" hidden>
+    <header class="top">
+      <div class="brand">
+        <div class="mark sm"><svg viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.1 8.4-7.5 9.5-4.4-1.1-7.5-4.9-7.5-9.5V6L12 3z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div><strong>Diario</strong><span id="vault-user"></span></div>
+      </div>
+      <button id="drive-chip" class="chip" type="button">Drive</button>
+    </header>
+
+    <section id="connect-banner" class="banner" hidden>
+      <p>Conecta tu Google Drive para enviar los clips a tu bóveda. Solo se usa una carpeta privada y oculta de la app.</p>
+      <button id="connect-btn" class="btn primary" type="button">Conectar Google Drive</button>
+    </section>
+
+    <section id="camera" class="camera">
+      <video id="preview" playsinline muted autoplay></video>
+      <div class="cam-closed">
+        <button id="open-cam" class="btn ghost" type="button">Abrir cámara</button>
+      </div>
+      <div class="cam-ui">
+        <button id="close-cam" class="round sm" type="button" aria-label="Cerrar cámara">✕</button>
+        <span id="rec-time" class="rec-time"></span>
+        <button id="flip" class="round sm" type="button" aria-label="Cambiar cámara">⟲</button>
+      </div>
+    </section>
+
+    <div class="actions">
+      <label class="btn ghost file">
+        <input id="gallery" type="file" accept="video/*" multiple>
+        Galería
+      </label>
+      <button id="rec-btn" class="rec" type="button" aria-label="Grabar"><span></span></button>
+      <div class="spacer"></div>
+    </div>
+
+    <p class="note">🔒 Graba con el botón rojo o sube vídeos desde la Galería. Se cifran en este iPhone antes de guardarse o subirse: este teléfono no puede volver a verlos, solo tu bóveda del PC.</p>
+
+    <h2>Clips</h2>
+    <p id="queue-empty" class="muted">Todavía no has enviado ningún clip.</p>
+    <ul id="queue" class="queue"></ul>
+
+    <button id="unpair" class="link" type="button">Desvincular este iPhone</button>
+  </main>
+
+  <div id="toasts"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
