@@ -32,6 +32,13 @@ h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: v
 
 .banner { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 14px; }
 .banner p { margin: 0 0 10px; font-size: 14px; color: var(--muted); }
+.banner-title { display: block; font-size: 16px; margin-bottom: 6px; }
+.mini-steps { list-style: none; padding: 0; margin: 0 0 10px; display: flex; flex-direction: column; gap: 10px; }
+.mini-steps li { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.mini-steps a.btn { text-decoration: none; }
+.mini-steps b { color: var(--text); }
+.mini-steps span { color: var(--muted); }
+.banner .tiny { font-size: 12px; margin: 0; }
 
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 18px; border-radius: 13px; border: 1px solid transparent; font: 600 15px var(--font); color: var(--text); background: transparent; }
 .btn.primary { width: 100%; background: var(--blue); color: #fff; }

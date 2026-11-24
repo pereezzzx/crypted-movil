@@ -3,7 +3,7 @@
 // Este teléfono no tiene la llave privada: no puede volver a ver lo que ha grabado.
 import { createSealer, createChunker, CHUNK, b64urlToBytes, bytesToB64url } from './crypto.js';
 import * as store from './store.js';
-import * as drive from './drive.js';
+import * as lan from './lan.js';
 
 const $ = (s) => document.querySelector(s);
 const PAIR_KEY = 'cv.pair';
@@ -15,31 +15,41 @@ const newId = () => bytesToB64url(crypto.getRandomValues(new Uint8Array(16)));
 let pairing = null;
 try { pairing = JSON.parse(localStorage.getItem(PAIR_KEY) || 'null'); } catch { pairing = null; }
 
-// ---------- arranque: vinculación y retorno de Google ----------
+// ---------- arranque: vinculación ----------
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
-  let changed = false;
-  if (h.get('pair')) {
-    try {
-      const p = JSON.parse(new TextDecoder().decode(b64urlToBytes(h.get('pair'))));
-      if (p.v !== 1 || b64urlToBytes(p.pk).length !== 65 || !/\.apps\.googleusercontent\.com$/.test(p.cid)) throw new Error();
-      if (pairing && pairing.pk !== p.pk && !confirm('Este iPhone ya estaba vinculado a otra bóveda. ¿Cambiar a la nueva?')) throw new Error('cancel');
-      pairing = { pk: p.pk, cid: p.cid, u: String(p.u || '').slice(0, 40), at: new Date().toISOString() };
-      localStorage.setItem(PAIR_KEY, JSON.stringify(pairing));
-      drive.signOut();
-      toast('iPhone vinculado a tu bóveda');
-    } catch (e) {
-      if (e.message !== 'cancel') toast('El enlace de vinculación no es válido', true);
-    }
-    changed = true;
+  if (!h.get('pair')) return;
+  try {
+    const p = JSON.parse(new TextDecoder().decode(b64urlToBytes(h.get('pair'))));
+    if (p.v !== 2 || b64urlToBytes(p.pk).length !== 65 || !/^[A-Za-z0-9_-]{20,200}$/.test(p.tok) || !Array.isArray(p.hosts) || !p.hosts.length) throw new Error();
+    const hosts = p.hosts.filter((x) => /^[a-z0-9.-]+$/i.test(x)).slice(0, 8);
+    if (pairing && pairing.pk !== p.pk && !confirm('Este iPhone ya estaba vinculado a otra bóveda. ¿Cambiar a la nueva?')) throw new Error('cancel');
+    pairing = {
+      pk: p.pk, tok: p.tok, hosts, port: Number(p.port) || lan.PORT,
+      prof: /^http:\/\/[a-z0-9.-]+:\d+\/[\w.-]+\.mobileconfig$/i.test(p.prof || '') ? p.prof : '',
+      u: String(p.u || '').slice(0, 40), at: new Date().toISOString(),
+      ok: !!(pairing && pairing.ok && pairing.pk === p.pk), // si ya funcionaba con este PC, el certificado ya está instalado
+    };
+    localStorage.setItem(PAIR_KEY, JSON.stringify(pairing));
+    pc = null;
+    toast('iPhone vinculado a tu bóveda');
+  } catch (e) {
+    if (e.message !== 'cancel') toast('El enlace de vinculación no es válido', true);
   }
-  const tok = drive.takeTokenFromUrl(h);
-  if (tok) {
-    changed = true;
-    if (tok.error) toast(tok.error === 'access_denied' ? 'Has cancelado el inicio de sesión' : 'No se pudo conectar con Google', true);
-    else toast('Google Drive conectado');
-  }
-  if (changed) history.replaceState(null, '', location.pathname); // limpiar el enlace (no dejar tokens a la vista)
+  history.replaceState(null, '', location.pathname); // limpiar el enlace (no dejar el token a la vista)
+}
+
+let pc = null;          // { base, name } del PC encontrado en esta sesión
+let pcState = 'idle';   // idle | searching | found | missing
+async function locatePC() {
+  if (pc) return pc;
+  pcState = 'searching';
+  renderChip();
+  pc = await lan.findPC(pairing);
+  pcState = pc ? 'found' : 'missing';
+  if (pc && !pairing.ok) { pairing.ok = true; localStorage.setItem(PAIR_KEY, JSON.stringify(pairing)); toast(`Conectado con ${pc.name}`); }
+  render();
+  return pc;
 }
 
 // ---------- interfaz ----------
@@ -56,11 +66,18 @@ function render() {
   $('#view-main').hidden = !pairing;
   if (!pairing) return;
   $('#vault-user').textContent = pairing.u ? `Bóveda de ${pairing.u}` : 'Tu bóveda';
-  const connected = !!drive.currentToken();
-  $('#drive-chip').textContent = connected ? 'Drive conectado' : 'Drive desconectado';
-  $('#drive-chip').classList.toggle('on', connected);
-  $('#connect-banner').hidden = connected;
+  // la guía del certificado se muestra hasta la primera conexión correcta con el PC
+  $('#setup-banner').hidden = !!pairing.ok;
+  $('#install-cert').href = pairing.prof || '#';
+  renderChip();
   renderQueue();
+}
+
+function renderChip() {
+  const chip = $('#pc-chip');
+  const t = { idle: 'PC', searching: 'Buscando PC…', found: 'PC conectado', missing: 'PC no encontrado' }[pcState];
+  chip.textContent = t;
+  chip.classList.toggle('on', pcState === 'found');
 }
 
 const STATUS = {
@@ -68,9 +85,9 @@ const STATUS = {
   encrypting: 'Cifrando…',
   queued: 'En cola para subir',
   uploading: 'Subiendo',
-  done: '✓ Enviado cifrado',
+  done: '✓ En tu PC',
   failed: 'Interrumpido',
-  waiting: 'Esperando conexión con Google',
+  waiting: 'Esperando al PC (en casa)',
 };
 
 async function renderQueue() {
@@ -232,7 +249,7 @@ async function toggleRecord() {
   }, 250);
 }
 
-// ---------- subida a Google Drive (reanudable) ----------
+// ---------- envío al PC por la Wi-Fi de casa (reanudable) ----------
 let pumping = false;
 async function pump() {
   if (pumping || !pairing) return;
@@ -241,85 +258,45 @@ async function pump() {
     for (;;) {
       const clips = (await store.allClips()).filter((c) => c.status === 'queued' || c.status === 'uploading' || c.status === 'waiting')
         .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
-      if (!clips.length) break;
-      const token = drive.currentToken();
-      if (!token) {
+      if (!clips.length) { if (!pc) await locatePC(); break; }
+      const target = await locatePC();
+      if (!target) {
+        // fuera de casa / PC apagado: los clips esperan cifrados en el iPhone
         for (const c of clips) if (c.status !== 'waiting') { c.status = 'waiting'; await store.putClip(c); }
-        render();
         break;
       }
-      if (!navigator.onLine) break;
-      await uploadClip(clips[0], token);
+      await sendClip(clips[0], target);
     }
   } catch (e) {
-    if (e instanceof drive.AuthError) { drive.signOut(); render(); toast('La sesión de Google ha caducado: vuelve a conectar', true); }
-    else { toast(`Subida en pausa: ${e.message}`, true); setTimeout(pump, 15000); }
+    pc = null;
+    pcState = 'missing';
+    if (e instanceof lan.NotPairedError) { toast(e.message, true); pairing.ok = false; localStorage.setItem(PAIR_KEY, JSON.stringify(pairing)); }
+    else toast(`Envío en pausa: ${e.message}`, true);
   } finally {
     pumping = false;
-    renderQueue();
+    render();
   }
 }
 
-async function uploadClip(clip, token) {
+async function sendClip(clip, target) {
   clip.status = 'uploading';
-  if (clip.session) {
-    const off = await drive.queryOffset(clip.session, clip.total);
-    if (off === -1) return finishClip(clip);
-    if (off === null) { clip.session = null; clip.offset = 0; } else clip.offset = off;
-  }
-  if (!clip.session) {
-    clip.session = await drive.createSession(token, `${clip.id}.cvi`, clip.total);
-    clip.offset = 0;
-  }
   await store.putClip(clip);
   renderQueue();
-
-  // recorrer los registros cifrados guardados y subir trozos de 8 MB desde donde se quedó
-  let pos = 0;
-  let buf = [];
-  let bufLen = 0;
-  let sentTo = clip.offset;
-  const flush = async (final) => {
-    while (bufLen >= drive.PIECE || (final && bufLen > 0)) {
-      const n = final ? Math.min(bufLen, drive.PIECE) : drive.PIECE;
-      const piece = new Uint8Array(n);
-      let o = 0;
-      while (o < n) {
-        const p = buf[0];
-        const k = Math.min(p.length, n - o);
-        piece.set(p.subarray(0, k), o);
-        o += k;
-        if (k === p.length) buf.shift(); else buf[0] = p.subarray(k);
-      }
-      bufLen -= n;
-      const done = await drive.putPiece(clip.session, piece, sentTo, clip.total);
-      sentTo += n;
-      clip.offset = sentTo;
-      await store.putClip(clip);
-      renderQueue();
-      if (done) return true;
-    }
-    return false;
-  };
-  for (let seq = 0; seq < clip.parts; seq++) {
-    let rec = await store.getPart(clip.id, seq);
-    if (!rec) throw new Error('Faltan datos del clip en el iPhone');
-    rec = new Uint8Array(rec);
-    const recStart = pos;
-    pos += rec.length;
-    if (pos <= sentTo) continue;                                  // este registro ya está en Google
-    if (recStart < sentTo) rec = rec.subarray(sentTo - recStart); // subido a medias: seguir desde donde quedó
-    buf.push(rec);
-    bufLen += rec.length;
-    if (await flush(false)) return finishClip(clip);
-  }
-  if (await flush(true)) return finishClip(clip);
-  throw new Error('Google no confirmó la subida completa');
-}
-
-async function finishClip(clip) {
-  await store.deleteParts(clip.id); // en el iPhone ya no queda nada del vídeo
-  Object.assign(clip, { status: 'done', session: null, offset: clip.total, doneAt: new Date().toISOString() });
+  let lastSave = 0;
+  await lan.uploadClip({
+    base: target.base,
+    token: pairing.tok,
+    id: clip.id,
+    total: clip.total,
+    parts: clip.parts,
+    getPart: (seq) => store.getPart(clip.id, seq),
+    onProgress: async (n) => {
+      clip.offset = n;
+      if (Date.now() - lastSave > 500) { lastSave = Date.now(); await store.putClip(clip); renderQueue(); }
+    },
+  });
+  await store.deleteParts(clip.id); // ya está en el PC: en el iPhone no queda nada del vídeo
+  Object.assign(clip, { status: 'done', offset: clip.total, doneAt: new Date().toISOString() });
   await store.putClip(clip);
 }
 
@@ -337,8 +314,8 @@ async function init() {
   try { await navigator.storage?.persist?.(); } catch { /* */ }
   await recoverInterrupted();
 
-  $('#connect-btn').onclick = () => drive.signIn(pairing.cid);
-  $('#drive-chip').onclick = () => { if (!drive.currentToken()) drive.signIn(pairing.cid); };
+  $('#check-pc').onclick = async () => { pc = null; const found = await locatePC(); if (!found) toast('Todavía no encuentro tu PC: revisa los pasos', true); else pump(); };
+  $('#pc-chip').onclick = () => { pc = null; pump(); };
   $('#rec-btn').onclick = () => toggleRecord().catch((e) => toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara y al micrófono' : e.message, true));
   $('#open-cam').onclick = () => openCamera().catch((e) => toast(e.name === 'NotAllowedError' ? 'Permite el acceso a la cámara y al micrófono' : e.message, true));
   $('#close-cam').onclick = closeCamera;
@@ -349,16 +326,18 @@ async function init() {
     try { await addFromGallery(files); } catch (err) { toast(err.message, true); renderQueue(); }
   };
   $('#unpair').onclick = () => {
-    if (!confirm('¿Desvincular este iPhone de tu bóveda? Los clips que aún no se hayan subido se perderán.')) return;
+    if (!confirm('¿Desvincular este iPhone de tu bóveda? Los clips que aún no se hayan enviado se perderán.')) return;
     localStorage.removeItem(PAIR_KEY);
-    drive.signOut();
     pairing = null;
+    pc = null;
     render();
   };
-  window.addEventListener('online', pump);
+  window.addEventListener('online', () => { pc = null; pump(); });
   // si la app ya estaba abierta y se abre el enlace de vinculación, solo cambia el # (no recarga)
   window.addEventListener('hashchange', () => { readHash(); render(); pump(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { render(); pump(); } });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { pc = null; render(); pump(); } });
+  // mientras la app está abierta, reintentar cada 30 s (p. ej. al llegar a casa)
+  setInterval(() => { if (document.visibilityState === 'visible' && !pumping) { if (pcState !== 'found') pc = null; pump(); } }, 30000);
   render();
   pump();
 }

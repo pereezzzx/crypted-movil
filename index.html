@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https://www.googleapis.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#0A0B0F">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,7 +23,7 @@
     <h1>Crypted · Diario</h1>
     <p>Este iPhone todavía no está vinculado a tu bóveda.</p>
     <ol class="steps">
-      <li>En el PC abre <strong>Crypted Vault → Ajustes → Móvil y nube</strong>.</li>
+      <li>En el PC abre <strong>Crypted Vault → Ajustes → iPhone</strong>.</li>
       <li>Pulsa <strong>Mostrar código QR</strong>.</li>
       <li>Escanéalo con la <strong>cámara del iPhone</strong>.</li>
     </ol>
@@ -36,12 +36,19 @@
         <div class="mark sm"><svg viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.1 8.4-7.5 9.5-4.4-1.1-7.5-4.9-7.5-9.5V6L12 3z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <div><strong>Diario</strong><span id="vault-user"></span></div>
       </div>
-      <button id="drive-chip" class="chip" type="button">Drive</button>
+      <button id="pc-chip" class="chip" type="button">PC</button>
     </header>
 
-    <section id="connect-banner" class="banner" hidden>
-      <p>Conecta tu Google Drive para enviar los clips a tu bóveda. Solo se usa una carpeta privada y oculta de la app.</p>
-      <button id="connect-btn" class="btn primary" type="button">Conectar Google Drive</button>
+    <section id="setup-banner" class="banner" hidden>
+      <strong class="banner-title">Último paso: confiar en tu PC (solo una vez)</strong>
+      <p>Para enviar los vídeos por la Wi-Fi de casa, el iPhone necesita el certificado de tu PC. Ten el PC encendido con Crypted Vault abierta y el iPhone en la misma Wi-Fi.</p>
+      <ol class="mini-steps">
+        <li><a id="install-cert" class="btn primary" href="#">1 · Descargar certificado</a><span>Pulsa <b>Permitir</b> cuando Safari pregunte.</span></li>
+        <li><span>2 · <b>Ajustes</b> → <b>Perfil descargado</b> (arriba) → <b>Instalar</b>.</span></li>
+        <li><span>3 · <b>Ajustes → General → Información → Ajustes de confianza de certificados</b> → activa <b>Crypted Vault · red local</b>.</span></li>
+        <li><button id="check-pc" class="btn ghost" type="button">4 · Ya está, comprobar conexión</button></li>
+      </ol>
+      <p class="tiny">El certificado solo es válido para direcciones de tu red de casa: no sirve para ninguna web de Internet.</p>
     </section>
 
     <section id="camera" class="camera">
@@ -65,7 +72,7 @@
       <div class="spacer"></div>
     </div>
 
-    <p class="note">🔒 Graba con el botón rojo o sube vídeos desde la Galería. Se cifran en este iPhone antes de guardarse o subirse: este teléfono no puede volver a verlos, solo tu bóveda del PC.</p>
+    <p class="note">🔒 Graba con el botón rojo o sube vídeos desde la Galería. Se cifran en este iPhone y se envían a tu PC por la Wi-Fi de casa. Este teléfono no puede volver a verlos: solo tu bóveda.</p>
 
     <h2>Clips</h2>
     <p id="queue-empty" class="muted">Todavía no has enviado ningún clip.</p>

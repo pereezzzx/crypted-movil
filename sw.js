@@ -1,6 +1,6 @@
 // Service worker: permite abrir la app sin conexión. Nunca toca las peticiones a Google.
-const VERSION = 'crypted-movil-v1';
-const SHELL = ['./', './index.html', './app.js', './crypto.js', './store.js', './drive.js', './styles.css', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
+const VERSION = 'crypted-movil-v2';
+const SHELL = ['./', './index.html', './app.js', './crypto.js', './store.js', './lan.js', './styles.css', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -10,7 +10,7 @@ self.addEventListener('activate', (e) => {
 });
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return; // Google y subidas: directo a la red
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return; // envíos al PC: directo a la red
   // red primero (para recibir actualizaciones); si no hay conexión, la copia guardada
   e.respondWith(fetch(e.request).then((res) => {
     const copy = res.clone();
